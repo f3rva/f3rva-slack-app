@@ -10,6 +10,18 @@ def acknowledge_profile_modal_submission(ack: Ack) -> None:
     """Acknowledge the modal submission instantly within the 3-second window."""
     ack()
 
+def _send_save_confirmation(client: WebClient, channel_id: str, user_id: str, text: str) -> None:
+    """Sends a private message to the user, posting ephemerally in channels and normally in DMs."""
+    try:
+        if channel_id.startswith("D"):
+            # Direct Messages do not support ephemeral messages; post directly to the DM channel by using the User ID
+            client.chat_postMessage(channel=user_id, text=text)
+        else:
+            # Public/private channels support ephemeral posting
+            client.chat_postEphemeral(channel=channel_id, user=user_id, text=text)
+    except Exception as error:
+        logger.error(f"Failed to post save confirmation notification: {error}")
+
 def process_profile_modal_submission(
     body: Dict[str, Any], view: Dict[str, Any], client: WebClient
 ) -> None:
@@ -52,9 +64,10 @@ def process_profile_modal_submission(
 
         # Notify the user of successful profile updates in the original channel
         if channel_id:
-            client.chat_postEphemeral(
-                channel=channel_id,
-                user=user_id,
+            _send_save_confirmation(
+                client=client,
+                channel_id=channel_id,
+                user_id=user_id,
                 text="✅ *F3 Profile Updated!* Your start date and emergency contact details have been successfully saved to your profile.",
             )
             logger.info(
@@ -70,11 +83,9 @@ def process_profile_modal_submission(
             f"Failed to process profile modal submission for user '{user_id}': {error}"
         )
         if channel_id:
-            try:
-                client.chat_postEphemeral(
-                    channel=channel_id,
-                    user=user_id,
-                    text="❌ *Update Failed:* We encountered an error saving your profile changes. Please verify and try again.",
-                )
-            except Exception as ephemeral_error:
-                logger.error(f"Failed to post error ephemeral notification: {ephemeral_error}")
+            _send_save_confirmation(
+                client=client,
+                channel_id=channel_id,
+                user_id=user_id,
+                text="❌ *Update Failed:* We encountered an error saving your profile changes. Please verify and try again.",
+            )

@@ -110,3 +110,49 @@ def test_process_profile_modal_submission_saves_fields(mock_profile_service) -> 
         user="U98765",
         text="✅ *F3 Profile Updated!* Your start date and emergency contact details have been successfully saved to your profile."
     )
+
+@patch("listeners.views.slack_profile_service")
+def test_process_profile_modal_submission_saves_fields_dm(mock_profile_service) -> None:
+    """Verifies modal form inputs submitted in a DM channel notify using standard chat_postMessage."""
+    mock_client = MagicMock()
+    mock_body = {
+        "user": {
+            "id": "U98765"
+        }
+    }
+    mock_view = {
+        "private_metadata": "D12345",  # DM channel ID starts with 'D'
+        "state": {
+            "values": {
+                "start_date_block": {
+                    "start_date_input": {
+                        "selected_date": "2020-05-10"
+                    }
+                },
+                "primary_contact_block": {
+                    "primary_contact_input": {
+                        "value": "Primary Name - Phone"
+                    }
+                },
+                "backup_contact_block": {
+                    "backup_contact_input": {
+                        "value": "Backup Name - Phone"
+                    }
+                }
+            }
+        }
+    }
+    
+    # Execute lazy listener call
+    process_profile_modal_submission(
+        body=mock_body,
+        view=mock_view,
+        client=mock_client
+    )
+    
+    # Verify that success standard DM message is dispatched (no chat_postEphemeral)
+    mock_client.chat_postMessage.assert_called_once_with(
+        channel="U98765",
+        text="✅ *F3 Profile Updated!* Your start date and emergency contact details have been successfully saved to your profile."
+    )
+    mock_client.chat_postEphemeral.assert_not_called()

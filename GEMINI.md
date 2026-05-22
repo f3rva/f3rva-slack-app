@@ -20,7 +20,8 @@ It consolidates all custom F3 RVA workspace automations into a single app instan
 - **Core Framework:** Slack Bolt for Python 1.20+ (`slack-bolt`)
 - **Language:** Python 3.12+ (Strict typing enforced)
 - **Environment Management:** `python-dotenv` for configuration loading
-- **Connection Mode:** Socket Mode (WebSockets) for local development and firewall traversal
+- **Connection Mode:** HTTP Webhook Mode (deprecating Socket Mode) via `app.start(port=3001)` locally (configurable via PORT env var) and AWS Lambda `AwsLambdaHandler` in production
+- **Database Backend:** Google Sheets API using `gspread` and `google-auth`
 - **Testing:** `pytest` and `pytest-mock` for testing services and listener handlers
 
 ---
@@ -33,24 +34,24 @@ AI agents must preserve and respect the following directory structure:
 src/
 ├── config/                 # Configurations, environment variable parser, constant definitions
 │   ├── __init__.py
-│   └── settings.py         # Loads and validates SLACK_* tokens and custom field IDs
+│   └── settings.py         # Loads and validates SLACK_* tokens, custom field IDs, and Google Sheets config
 ├── listeners/              # Slack event, command, action, and modal routing layer
 │   ├── __init__.py         # Registers listeners onto the central Bolt App instance
 │   ├── actions.py          # Handles interactive block elements (e.g. button clicks)
-│   ├── commands.py         # Handles slash commands (e.g. /emergency-contact)
+│   ├── commands.py         # Handles slash commands (e.g. /profile)
 │   ├── events.py           # Handles event subscriptions (e.g. app_mention, member_joined_channel)
 │   ├── shortcuts.py        # Handles global and message shortcuts
 │   └── views.py            # Handles modal submissions and user form confirmations
 ├── services/               # Core business logic layer (Free of Slack-specific transport details)
 │   ├── __init__.py
-│   ├── slack_profile.py    # Manages custom profile fields read/writes using Bolt WebClient
-│   └── database.py         # Optional interfaces for auxiliary storage
+│   ├── slack_profile.py    # Manages Fetch-and-Seed cache lookup & Google Sheet updates
+│   └── database.py         # GoogleSheetsService backend using gspread and service account auth
 └── tests/                  # Test suite mirroring the application structure
     ├── __init__.py
     ├── test_listeners.py
     └── test_services.py
-app.py                      # Server entrypoint. Initializes app, configures logs, and runs SocketModeHandler
-requirements.txt            # Dependency manifest
+app.py                      # Server entrypoint. Standard HTTP webhook dev server and dynamic AWS Lambda handler
+requirements.txt            # Dependency manifest (includes gspread, google-auth, boto3)
 ```
 
 ---
@@ -88,6 +89,15 @@ def get_custom_profile_fields(
     # ...
 ```
 Avoid using `Any` where possible. Declare detailed typing models or classes if dealing with highly structured custom data structures.
+
+### D. Google Sheets Caching & Seeding Strategy
+To bypass Slack profile write restrictions on the free tier, our backend storage has pivoted entirely to Google Sheets.
+1. **Caching/Database of Record:** The Google Sheet is the database of record for member profile information (Start Date, Primary/Backup Contacts).
+2. **Fetch-and-Seed Migration:** When a user's record is requested:
+   - The application checks Google Sheets first.
+   - If found, it returns the cached values immediately without calling Slack API, improving performance and conserving API rate limits.
+   - If not found (first view), the app retrieves their display name and existing custom profile fields from Slack using the Bot token (which is allowed), seeds a new row in Google Sheets, and saves it.
+3. **Subsequent Updates:** All subsequent profile updates are written directly to Google Sheets, keeping the local profile fields untouched.
 
 ---
 

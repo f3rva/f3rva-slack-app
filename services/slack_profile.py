@@ -2,11 +2,13 @@ import logging
 from typing import Dict, Optional
 from slack_sdk.web import WebClient
 from config.settings import settings
+from services.database import google_sheets_service
 
 logger = logging.getLogger(__name__)
 
 class SlackProfileService:
-    """Handles business logic for retrieving and updating custom Slack profile fields.
+    """Handles business logic for retrieving and updating custom Slack profile fields,
+    utilizing a Google Sheets database backend for storage parity and free-tier compatibility.
     
     Adheres strictly to PII constraints by never logging sensitive custom field content
     such as phone numbers or medical notes.
@@ -15,7 +17,8 @@ class SlackProfileService:
     def retrieve_user_custom_profile_fields(
         self, client: WebClient, user_id: str
     ) -> Dict[str, Optional[str]]:
-        """Queries a user's Slack profile and extracts the values of specific custom fields.
+        """Queries the Google Sheets database first. If not found, fetches from Slack using
+        the Bot Token, seeds the Google Sheets database, and returns the retrieved values.
         
         Args:
             client: An initialized Slack WebClient.
@@ -25,13 +28,28 @@ class SlackProfileService:
             A dictionary containing the values of the custom profile fields.
         """
         logger.info(
-            f"Retrieving custom profile fields for user ID: '{user_id}'."
+            f"Retrieving profile fields for user ID: '{user_id}'."
         )
         
         try:
-            response = client.users_profile_get(user=user_id)
+            # 1. Query Google Sheets database
+            record = google_sheets_service.get_user_record(user_id)
+            if record is not None:
+                logger.info(f"Database record found for user ID: '{user_id}'. Returning cached values.")
+                return {
+                    "start_date": record["start_date"] if record["start_date"] else None,
+                    "primary_contact": record["primary_contact"] if record["primary_contact"] else None,
+                    "backup_contact": record["backup_contact"] if record["backup_contact"] else None,
+                }
+            
+            # 2. First-time fetch-and-seed migration from Slack profile API
+            logger.info(f"No database record found for user ID: '{user_id}'. Performing initial fetch-and-seed from Slack.")
+            response = client.users_profile_get(token=settings.slack_bot_token, user=user_id)
             profile = response.get("profile", {})
             fields = profile.get("fields", {})
+            
+            # Extract display name or real name
+            display_name = profile.get("display_name") or profile.get("real_name") or user_id
             
             # Helper to extract a custom field value by its ID safely
             def _extract_field_value(field_id: str) -> Optional[str]:
@@ -48,6 +66,15 @@ class SlackProfileService:
                 settings.backup_emergency_contact_profile_field_id
             )
             
+            # 3. Seed into Google Sheets database
+            google_sheets_service.upsert_user_record(
+                user_id=user_id,
+                display_name=display_name,
+                start_date=start_date_value if start_date_value else "",
+                primary_contact=primary_contact_value if primary_contact_value else "",
+                backup_contact=backup_contact_value if backup_contact_value else ""
+            )
+            
             return {
                 "start_date": start_date_value,
                 "primary_contact": primary_contact_value,
@@ -55,7 +82,7 @@ class SlackProfileService:
             }
             
         except Exception as error:
-            logger.error(
+            logger.exception(
                 f"Failed to retrieve custom profile fields for user '{user_id}': {error}"
             )
             raise error
@@ -68,7 +95,7 @@ class SlackProfileService:
         primary_contact: Optional[str],
         backup_contact: Optional[str],
     ) -> None:
-        """Updates specific custom profile fields in a user's Slack profile.
+        """Updates the user's custom profile fields in the Google Sheets backend.
         
         Args:
             client: An initialized Slack WebClient.
@@ -79,38 +106,31 @@ class SlackProfileService:
         """
         # Strictly audit logging to never output raw PII variables to system output
         logger.info(
-            f"Initiating custom profile fields update for user ID: '{user_id}'."
+            f"Initiating profile fields update in database for user ID: '{user_id}'."
         )
 
         try:
-            # Build the custom fields object using specific field IDs
-            custom_fields_payload = {
-                settings.start_date_profile_field_id: {
-                    "value": start_date if start_date else "",
-                    "alt": "",
-                },
-                settings.primary_emergency_contact_profile_field_id: {
-                    "value": primary_contact if primary_contact else "",
-                    "alt": "",
-                },
-                settings.backup_emergency_contact_profile_field_id: {
-                    "value": backup_contact if backup_contact else "",
-                    "alt": "",
-                },
-            }
+            # Retrieve current display name/real name from Slack using Bot Token
+            response = client.users_profile_get(token=settings.slack_bot_token, user=user_id)
+            profile = response.get("profile", {})
+            display_name = profile.get("display_name") or profile.get("real_name") or user_id
 
-            # Update the user profile
-            client.users_profile_set(
-                user=user_id,
-                profile={"fields": custom_fields_payload}
+            # Save the new values directly to Google Sheets database
+            google_sheets_service.upsert_user_record(
+                user_id=user_id,
+                display_name=display_name,
+                start_date=start_date if start_date else "",
+                primary_contact=primary_contact if primary_contact else "",
+                backup_contact=backup_contact if backup_contact else ""
             )
+            
             logger.info(
-                f"Successfully updated custom profile fields for user ID: '{user_id}'."
+                f"Successfully updated profile fields in database for user ID: '{user_id}'."
             )
             
         except Exception as error:
-            logger.error(
-                f"Failed to update custom profile fields for user '{user_id}': {error}"
+            logger.exception(
+                f"Failed to update profile fields in database for user '{user_id}': {error}"
             )
             raise error
 

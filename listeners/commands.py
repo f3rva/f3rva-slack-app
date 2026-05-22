@@ -140,10 +140,10 @@ def process_profile_command(body: Dict[str, Any], client: WebClient) -> None:
         channel_id = body.get("channel_id")
         if channel_id:
             try:
-                client.chat_postEphemeral(
-                    channel=channel_id,
-                    user=user_id,
-                    text="❌ Sorry, we encountered an error while trying to fetch your profile information. Please try again later.",
-                )
-            except Exception as ephemeral_error:
-                logger.error(f"Failed to post error ephemeral notification: {ephemeral_error}")
+                error_text = "❌ Sorry, we encountered an error while trying to fetch your profile information. Please try again later."
+                if channel_id.startswith("D"):
+                    client.chat_postMessage(channel=user_id, text=error_text)
+                else:
+                    client.chat_postEphemeral(channel=channel_id, user=user_id, text=error_text)
+            except Exception as notification_error:
+                logger.error(f"Failed to post error notification: {notification_error}")

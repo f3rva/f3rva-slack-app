@@ -1,8 +1,10 @@
 # F3 RVA Slack App
 
-A monolithic Slack application designed for the `f3-rva-workspace.slack.com` workspace. 
+A monolithic Slack application designed for the `f3-rva-workspace.slack.com` workspace.
 
-Operating under the Slack free tier, this application acts as a single centralized "monolith" that routes all custom F3 RVA workspace functionalities (slash commands, events, interactive actions, and shortcuts) through a single bot instance.
+To support the Slack free tier constraints (where writing to other members' custom profile fields is blocked), this application uses a hybrid architecture:
+1. **Google Sheets Database Backend:** Acts as the database of record for member profile fields. On first view, the app runs a one-shot "Fetch-and-Seed" migration that reads the member's existing Slack custom fields (allowed via Bot Token), seeds them into the spreadsheet, and saves all subsequent updates directly to Google Sheets.
+2. **HTTP Webhook Server (Parity Mode):** The app operates entirely in standard HTTP Webhook mode. It uses Slack's cryptographically secured signature verification (`SLACK_SIGNING_SECRET`) in both local development (listening on port 3001 exposed via `ngrok` by default) and production (AWS Lambda + Amazon API Gateway).
 
 The application is written in **Python 3.12+** using the official **Slack Bolt for Python** framework.
 
@@ -10,20 +12,24 @@ The application is written in **Python 3.12+** using the official **Slack Bolt f
 
 ## Features
 
-1. **Emergency Contact Manager (Initial Feature)**
-   - Allows members (PAX) to view, add, or update custom emergency contact fields in their Slack profile using interactive modals.
-   - Leverages Slack's Custom Profile Fields to store emergency contact name, relationship, phone number, and medical notes securely.
+1. **Emergency Contact Profile Manager**
+   - Allows members (PAX) to view, add, or update custom emergency contact details via interactive Block Kit modals using `/profile`.
+   - Bypasses API multi-user write restrictions on the free tier by using Google Sheets as the storage layer of record.
+   - Automatically migrates existing Slack emergency contact data on first use ("Fetch-and-Seed").
 2. **Monolithic Extensibility**
-   - Built with a decoupled listener-router architecture, making it simple to plug in new commands, event listeners, or interactive workflows as the workspace grows.
+   - Decoupled listener-router architecture makes it easy to plug in new commands, event listeners, or interactive workflows.
+3. **100% Signature Verified**
+   - Secures all requests cryptographically using the Slack Signing Secret, ensuring identical security profiles locally and in production.
 
 ---
 
-## Technical Stack
+## Tech Stack
 
-- **Language:** Python 3.12+
+- **Language:** Python 3.12+ (strictly typed)
 - **Framework:** Slack Bolt for Python (`slack-bolt`)
-- **Local Dev Connection:** Socket Mode (bypasses firewalls and avoids public URL exposure like `ngrok`)
-- **HTTP Hosting (Production):** Compatible with WSGI/ASGI web servers (e.g., Gunicorn + FastAPI/Flask) if HTTP-mode is desired in the future.
+- **Database:** Google Sheets API (`gspread` + `google-auth`)
+- **Production Serverless Hosting:** AWS Lambda (Python 3.12) + Amazon API Gateway
+- **Local Dev Server:** Built-in Bolt HTTP server (port 3001 by default) behind an `ngrok` tunnel
 
 ---
 
@@ -33,22 +39,22 @@ The application is written in **Python 3.12+** using the official **Slack Bolt f
 f3rva-slack-app/
 ├── README.md               # Developer setup and Slack config guide
 ├── GEMINI.md               # AI agent styling, architecture, and coding guardrails
-├── requirements.txt        # Python dependency manifest
-├── app.py                  # Entrypoint. Initializes Bolt App & starts listener server
-├── config/                 # Configuration and settings loader
+├── requirements.txt        # Python dependency manifest (gspread, boto3, slack-bolt, etc.)
+├── app.py                  # Entrypoint. Dynamically detects AWS Lambda context or boots local dev server
+├── config/                 # Configuration and environment parser
 │   ├── __init__.py
-│   └── settings.py
-├── listeners/              # Routing & listener handlers (decoupled from server setup)
-│   ├── __init__.py         # Central router registering sub-listeners to the App
+│   └── settings.py         # Type-safe validation of Slack & Google Sheets credentials
+├── listeners/              # Routing & controller layer (thin controllers)
+│   ├── __init__.py         # Registers listeners onto the central Bolt App instance
 │   ├── actions.py          # Handles interactive block events (button clicks, menu selects)
-│   ├── commands.py         # Handles Slash commands (e.g., `/emergency-contact`)
-│   ├── events.py           # Handles Slack events (e.g., channel joins, profile changes)
+│   ├── commands.py         # Handles Slash commands (e.g., `/profile`)
+│   ├── events.py           # Handles Slack events (e.g., app_mention)
 │   ├── shortcuts.py        # Handles global and message shortcuts
 │   └── views.py            # Handles modal submissions (form validation and saves)
-├── services/               # Core business logic layer (independent of the Slack framework)
+├── services/               # Core business logic layer (independent of transport/framework)
 │   ├── __init__.py
-│   ├── slack_profile.py    # Service for reading/writing custom fields in users' profiles
-│   └── database.py         # Interface for auxiliary datastores if needed
+│   ├── slack_profile.py    # Service for retrieving/seeding from Slack and saving to Sheets
+│   └── database.py         # GoogleSheetsService backend using gspread
 └── tests/                  # Test suite
     ├── __init__.py
     ├── test_listeners.py
@@ -60,142 +66,176 @@ f3rva-slack-app/
 ## Quickstart: Local Development
 
 ### 1. Prerequisites
-- Python 3.12 or newer installed locally.
+- Python 3.10+ (recommend Python 3.12+) installed locally.
 - Git.
-- Admin access (or App Manager privileges) in the `f3-rva-workspace` Slack workspace to configure the application.
+- Admin access (or App Manager privileges) in the `f3-rva-workspace` Slack workspace.
+- A free Google Cloud Console project with the **Google Sheets API** and **Google Drive API** enabled.
+- A tunneling tool like `ngrok` installed.
 
-### 2. Clone and Setup Environment
+### 2. Google Sheets Setup
+Choose one of the following keyless authentication strategies:
+
+* **Strategy A: GCP Workload Identity Federation (WIF) - For Production**
+  1. Share the Google Spreadsheet directly with **your GCP Service Account's email address** as an **Editor** (no key file is generated).
+  2. Configure a GCP Workload Identity Pool and Provider to trust your AWS Account and the Lambda function's IAM Role.
+  3. Generate a keyless **Workload Identity credentials configuration file** (e.g. `wif-credential-config.json`).
+* **Strategy B: Local Developer Credentials (Keyless Fallback - For Local Development)**
+  1. Share the Google Spreadsheet directly with **your own corporate email address** as an **Editor**.
+  2. Install the [Google Cloud CLI](https://cloud.google.com/sdk/docs/install) on your local computer.
+  3. In your terminal, run the login command requesting Google Sheets and Drive access scopes:
+     ```bash
+     gcloud auth application-default login --scopes="https://www.googleapis.com/auth/spreadsheets,https://www.googleapis.com/auth/drive,https://www.googleapis.com/auth/cloud-platform"
+     ```
+     This opens a browser where you log in with your corporate Google Account, creating a secure local keyless credentials file with the necessary scopes that the app loads automatically!
+
+* **Strategy C: Local Service Account Impersonation (Recommended for Enterprise/Corporate Workspace Blocks)**
+  If your corporate Google Workspace blocks the "Google Cloud SDK" from accessing sensitive scopes (showing a *"This app is blocked"* error during Strategy B), use keyless Service Account Impersonation. Your local login uses standard safe scopes, and your app impersonates a Service Account to access Sheets:
+  1. **Reset standard local login** (does not request sensitive scopes, so it bypasses corporate Workspace blocks):
+     ```bash
+     gcloud auth application-default login
+     ```
+  2. **Create a target Service Account** in your GCP project (no key generated):
+     ```bash
+     gcloud iam service-accounts create slack-app-local \
+         --description="Service account for local Slack App development" \
+         --display-name="slack-app-local"
+     ```
+  3. **Grant yourself permission** to impersonate the service account:
+     ```bash
+     gcloud iam service-accounts add-iam-policy-binding \
+         slack-app-local@YOUR_PROJECT_ID.iam.gserviceaccount.com \
+         --member="user:YOUR_CORPORATE_EMAIL@domain.com" \
+         --role="roles/iam.serviceAccountTokenCreator"
+     ```
+  4. **Share your Google Spreadsheet** directly with the Service Account email (`slack-app-local@YOUR_PROJECT_ID.iam.gserviceaccount.com`) as an **Editor**.
+  5. Add the target Service Account to your local `.env` file:
+     ```ini
+     GOOGLE_IMPERSONATE_SERVICE_ACCOUNT=slack-app-local@YOUR_PROJECT_ID.iam.gserviceaccount.com
+     ```
+
+*(Optional) Set the first row header fields to: `user_id`, `display_name`, `start_date`, `primary_contact`, `backup_contact`, `updated_at`. If empty, the app will automatically write headers.*
+
+### 3. Clone and Setup Environment
 ```bash
-# Clone the repository (if not already local)
+# Clone the repository
 git clone git@github.com:f3rva/f3rva-slack-app.git
 cd f3rva-slack-app
 
-# Create a virtual environment
+# Create and activate a virtual environment
 python3 -m venv .venv
-
-# Activate the virtual environment
-# On macOS/Linux:
 source .venv/bin/activate
-# On Windows:
-# .venv\Scripts\activate
 
 # Install dependencies
 pip install --upgrade pip
 pip install -r requirements.txt
 ```
 
-### 3. Configure Environment Variables
-Create a `.env` file in the root directory:
+### 4. Configure Environment Variables
+Create a local `.env` file in the root directory:
 ```env
-# Bot User OAuth Token (xoxb-...)
+# Slack Credentials
 SLACK_BOT_TOKEN=xoxb-your-bot-token
+SLACK_SIGNING_SECRET=your-slack-signing-secret
 
-# App-level Token (xapp-...) required for Socket Mode
-SLACK_APP_TOKEN=xapp-your-app-level-token
+# Field IDs for Custom Slack Profile Fields (used for fetch-and-seed lookup)
+START_DATE_FIELD_ID=XF0123ABCD
+EMERGENCY_CONTACT_PRIMARY_FIELD_ID=XF4567EFGH
+EMERGENCY_CONTACT_BACKUP_FIELD_ID=XF8901IJKL
 
-# Field IDs for Custom Profile Fields (obtained from Slack Admin UI)
-EMERGENCY_CONTACT_NAME_FIELD_ID=XF0123ABCD
-EMERGENCY_CONTACT_PHONE_FIELD_ID=XF4567EFGH
-EMERGENCY_CONTACT_RELATION_FIELD_ID=XF8901IJKL
-EMERGENCY_CONTACT_MED_NOTES_FIELD_ID=XF2345MNOP
+# Google Sheets Configuration
+GOOGLE_SHEETS_SPREADSHEET_KEY=your-spreadsheet-key
 
-# App Environment (development, production)
+# Google Application Default Credentials (ADC) configuration:
+# For local keyless development via Strategy B, you can leave this empty/commented!
+# For production keyless WIF, this can point to the path of your bundled, keyless WIF config:
+# GOOGLE_APPLICATION_CREDENTIALS=wif-credential-config.json
+
+# App Environment
 APP_ENV=development
 ```
 
-### 4. Run the App Locally
+### 5. Expose Development Server via ngrok
+Slack must be able to send HTTP POST request webhooks to your local machine.
+1. Expose port 3001:
+   ```bash
+   ngrok http 3001
+   ```
+2. Copy the resulting public HTTPS URL (e.g. `https://1234-abcd.ngrok-free.app`).
+
+### 6. Run the App Locally
 ```bash
 python app.py
 ```
-*Note: Since the app utilizes Socket Mode, it establishes a secure WebSocket connection directly with Slack's servers. You do not need to configure public IP forwarding or run `ngrok`.*
+The app will start a signature-verified HTTP webhook server listening on port 3001 (or another port if the `PORT` env var is specified)!
 
 ---
 
 ## Slack App Configuration Guide (api.slack.com)
 
-To connect this codebase to the F3 RVA Slack workspace, configure your app on the [Slack API Portal](https://api.slack.com/apps) with the following settings:
+To connect this codebase to the F3 RVA Slack workspace, configure your app on the [Slack API Portal](https://api.slack.com/apps):
 
-### 1. Enable Socket Mode
-1. Navigate to **Basic Information** > **App-Level Tokens**.
-2. Click **Generate Token and Scopes**, choose the `connections:write` scope, and name the token (e.g., `f3rva-socket-mode-token`). Save the generated token as `SLACK_APP_TOKEN` in your `.env`.
-3. In the left-hand sidebar, go to **Settings** > **Socket Mode** and toggle **Enable Socket Mode** to `On`.
-
-### 2. Configure Scopes (OAuth & Permissions)
+### 1. Configure Scopes (OAuth & Permissions)
 Navigate to **Features** > **OAuth & Permissions** and add the following **Bot Token Scopes**:
 - `commands`: Allows the bot to register and handle custom slash commands.
-- `users.profile:read`: Allows the bot to view users' profiles (needed to pre-populate current emergency contact details).
-- `users.profile:write`: Allows the bot to modify users' profiles (needed to write updated emergency contact details).
+- `users.profile:read`: Allows the bot to view users' profiles (needed for initial fetch-and-seed data lookup).
 - `users:read`: Allows the bot to fetch list data and general info about workspace members.
+- `chat:write`: Allows the bot to send success notification/ephemeral messages to users.
 
 Install the app to the workspace after configuring these scopes to generate the `SLACK_BOT_TOKEN` (starts with `xoxb-`).
 
-### 3. Create Custom Profile Fields (Slack Admin Console)
-Because Slack does not have native emergency contact fields, you must create them as an administrator:
-1. Go to your Slack Workspace Admin settings (`f3-rva-workspace.admin.slack.com`).
-2. Navigate to **Workspace Settings** > **Customize [Workspace Name]** > **Profile Fields**.
-3. Create custom text fields for:
-   - **Emergency Contact Name**
-   - **Emergency Contact Phone**
-   - **Emergency Contact Relationship**
-   - **Medical/Important Notes**
-4. To retrieve the unique **Field IDs** for your `.env` configuration, either:
-   - Inspect the network requests when updating your profile in the browser.
-   - Run a test script using the `users.profile.get` API method with your bot token to inspect the profile payload of a user. The custom fields will appear under `fields` in format `XFXXXXXXX`.
+### 2. Enable Interactivity & Event Subscriptions
+1. Go to **Features** > **Interactivity & Shortcuts** and toggle it **On**.
+   - Set the **Request URL** to `https://<your-ngrok-or-apigateway-url>/slack/events`.
+2. Go to **Features** > **Event Subscriptions** and toggle it **On**.
+   - Set the **Request URL** to `https://<your-ngrok-or-apigateway-url>/slack/events`.
+   - Subscribe to desired bot events under **Subscribe to Bot Events** (if applicable).
 
-### 4. Register Slash Commands
+### 3. Register Slash Commands
 Navigate to **Features** > **Slash Commands** and click **Create New Command**:
-- **Command:** `/emergency-contact`
-- **Short Description:** Manage or update your F3 RVA emergency contact information.
-- **Usage Hint:** `[edit / view]`
-
-### 5. Enable Interactivity
-Navigate to **Features** > **Interactivity & Shortcuts** and toggle it to **On**.
-*(Since Socket Mode is enabled, you do not need to provide a Request URL. Slack will route interactive actions over the socket connection).*
+- **Command:** `/profile`
+- **Request URL:** `https://<your-ngrok-or-apigateway-url>/slack/events`
+- **Short Description:** Manage or update your F3 RVA emergency contact information and start date.
 
 ---
 
-## Monolithic Extensibility: Adding New Features
+## Production Deployment: AWS Lambda
 
-The repository scales as a monolith by separating listener definitions from application startup. To add a new command, event, or button action:
+AWS Lambda provides an ideal, highly cost-effective, zero-maintenance serverless hosting model.
 
-### 1. Implement Listener Logic
-Add your handler inside the appropriate module under `listeners/`. For example, to add a new command handler in `listeners/commands.py`:
-```python
-import logging
-from slack_bolt import Ack
+### 1. Build & Package
+To package the app for AWS Lambda (Python 3.12 runtime):
+1. Package dependencies into a deployment zip file or container:
+   ```bash
+   pip install -r requirements.txt -t package/
+   cp -r app.py config/ listeners/ services/ package/
+   cd package && zip -r ../deployment.zip .
+   ```
+2. Upload `deployment.zip` to your AWS Lambda function.
 
-logger = logging.getLogger(__name__)
+### 2. Configure AWS Lambda environment
+Define the environment variables in your AWS Lambda configuration:
+- `SLACK_BOT_TOKEN`
+- `SLACK_SIGNING_SECRET`
+- `START_DATE_FIELD_ID`
+- `EMERGENCY_CONTACT_PRIMARY_FIELD_ID`
+- `EMERGENCY_CONTACT_BACKUP_FIELD_ID`
+- `GOOGLE_SHEETS_SPREADSHEET_KEY`
+- `GOOGLE_APPLICATION_CREDENTIALS=wif-credential-config.json` (Points to the keyless WIF configuration file bundled in your deployment package)
+- `APP_ENV=production`
 
-def handle_q_signups(ack: Ack, body: dict, say: callable):
-    """Handles the /q-signup slash command."""
-    ack()  # Always acknowledge the command immediately!
-    user_id = body.get("user_id")
-    say(text=f"Hey <@{user_id}>! Here is the link to the Q-sheet signups: [Link]")
-```
-
-### 2. Register the Listener
-Hook the handler up to the App in `listeners/__init__.py`:
-```python
-from slack_bolt import App
-from listeners.commands import handle_q_signups
-
-def register_listeners(app: App) -> None:
-    # Existing registrations...
-    app.command("/emergency-contact")(handle_emergency_command)
-    
-    # New registrations
-    app.command("/q-signup")(handle_q_signups)
-```
-
-By decoupling registration, `app.py` remains a clean, small entrypoint focused entirely on environment loading and server startup.
+### 3. Expose via Amazon API Gateway
+1. Create an **API Gateway (HTTP API)**.
+2. Configure a `POST` route at `/slack/events` integration pointing to your AWS Lambda function.
+3. Deploy the API and copy the Invoke URL to update Slack's Interactivity and Command Request URLs.
+4. Set the AWS Lambda execution handler path to: `app.handler`.
 
 ---
 
 ## Testing
 
-The project uses `pytest` for unit and integration tests. Tests should mock the Slack Bolt SDK to verify that services process business logic safely and correct responses are formulated.
+The project uses `pytest` and `pytest-mock` for unit and integration testing.
 
 ```bash
-# Run tests
-pytest
+# Run the test suite
+pytest tests/
 ```
