@@ -1,0 +1,152 @@
+name: CI / Build & Deploy
+
+on:
+  push:
+    branches: [ main ]            # deploy to development on pushes to main
+  release:
+    types: [ published ]          # deploy to production when a release is published
+
+jobs:
+  deploy-dev:
+    environment: development
+    permissions:
+      contents: read
+      id-token: write
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    steps:
+      # 1. Check out the Slack App code into a sibling directory
+      # This mirrors the local directory structure so the relative paths match perfectly.
+      - name: Checkout Slack App
+        uses: actions/checkout@v5
+        with:
+          path: f3rva-slack-app
+
+      # 2. Check out the Infrastructure CDK code into another sibling directory
+      # Note: If the f3rva-infrastructure repository is private, configure
+      # a GitHub Personal Access Token (PAT) with 'repo' scope as a Repository Secret 
+      # named 'INFRASTRUCTURE_DEPLOY_TOKEN'.
+      - name: Checkout Infrastructure
+        uses: actions/checkout@v5
+        with:
+          repository: f3rva/f3rva-infrastructure
+          path: f3rva-infrastructure
+          token: ${{ secrets.INFRASTRUCTURE_DEPLOY_TOKEN || github.token }}
+
+      # 3. Use Node.js 24
+      - name: Use Node.js 24
+        uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+
+      # 4. Cache node modules for infrastructure stack
+      - name: Cache node modules
+        uses: actions/cache@v4
+        with:
+          path: ~/.npm
+          key: ${{ runner.os }}-node-${{ hashFiles('f3rva-infrastructure/package-lock.json') }}
+          restore-keys: |
+            ${{ runner.os }}-node-
+
+      # 5. Set up Python for Lambda local asset bundling
+      # Because the runner has pip3 and rsync pre-installed, our CDK stack will run
+      # local bundling in seconds, bypassing the slow startup of a Docker container!
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      # 6. Configure AWS credentials via OIDC
+      - name: Configure AWS credentials (OIDC / role for dev)
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.DEV_AWS_ROLE_ARN }}
+          aws-region: ${{ secrets.DEV_AWS_REGION }}
+
+      # 7. Install CDK Dependencies
+      - name: Install CDK Dependencies
+        run: npm ci
+        cwd: f3rva-infrastructure
+
+      # 8. Compile the TypeScript CDK codebase
+      - name: Build TypeScript Stacks
+        run: npm run build
+        cwd: f3rva-infrastructure
+
+      # 9. Deploy the Development Slack App CDK stack
+      - name: Deploy CDK Dev Stack
+        run: |
+          npx cdk deploy F3RVA-slack-app-dev --require-approval never
+        cwd: f3rva-infrastructure
+        env:
+          F3RVA_ACCOUNT_DEV: ${{ secrets.F3RVA_ACCOUNT_DEV }}
+          F3RVA_ACCOUNT_PROD: ${{ secrets.F3RVA_ACCOUNT_PROD }}
+
+  deploy-prod:
+    environment: production
+    permissions:
+      contents: read
+      id-token: write
+    if: github.event_name == 'release'
+    runs-on: ubuntu-latest
+    steps:
+      # 1. Check out the Slack App code into a sibling directory
+      - name: Checkout Slack App
+        uses: actions/checkout@v5
+        with:
+          path: f3rva-slack-app
+
+      # 2. Check out the Infrastructure CDK code into another sibling directory
+      - name: Checkout Infrastructure
+        uses: actions/checkout@v5
+        with:
+          repository: f3rva/f3rva-infrastructure
+          path: f3rva-infrastructure
+          token: ${{ secrets.INFRASTRUCTURE_DEPLOY_TOKEN || github.token }}
+
+      # 3. Use Node.js 24
+      - name: Use Node.js 24
+        uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+
+      # 4. Cache node modules for infrastructure stack
+      - name: Cache node modules
+        uses: actions/cache@v4
+        with:
+          path: ~/.npm
+          key: ${{ runner.os }}-node-${{ hashFiles('f3rva-infrastructure/package-lock.json') }}
+          restore-keys: |
+            ${{ runner.os }}-node-
+
+      # 5. Set up Python for Lambda local asset bundling
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      # 6. Configure AWS credentials via OIDC
+      - name: Configure AWS credentials (OIDC / role for prod)
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.PROD_AWS_ROLE_ARN }}
+          aws-region: ${{ secrets.PROD_AWS_REGION }}
+
+      # 7. Install CDK Dependencies
+      - name: Install CDK Dependencies
+        run: npm ci
+        cwd: f3rva-infrastructure
+
+      # 8. Compile the TypeScript CDK codebase
+      - name: Build TypeScript Stacks
+        run: npm run build
+        cwd: f3rva-infrastructure
+
+      # 9. Deploy the Production Slack App CDK stack
+      - name: Deploy CDK Prod Stack
+        run: |
+          npx cdk deploy F3RVA-slack-app-prod --require-approval never
+        cwd: f3rva-infrastructure
+        env:
+          F3RVA_ACCOUNT_DEV: ${{ secrets.F3RVA_ACCOUNT_DEV }}
+          F3RVA_ACCOUNT_PROD: ${{ secrets.F3RVA_ACCOUNT_PROD }}
