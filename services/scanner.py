@@ -19,12 +19,12 @@ class PesterBotScanner:
         """Determines if a user has configured Emergency Contact (ICE) details in their profile.
 
         Checks both:
-        1. The standard "What I do" (title) profile description for the keyword "ICE".
+        1. The standard "Title" field for the keyword "ICE".
         2. Optional custom emergency contact fields if their field IDs are configured.
         """
         profile: Dict[str, Any] = user.get("profile", {})
         
-        # 1. Check standard "What I do" (title) field for "ICE" (case-insensitive)
+        # 1. Check standard "Title" field for "ICE" (case-insensitive)
         title: str = profile.get("title", "").strip().lower()
         if "ice" in title:
             return True
@@ -72,7 +72,7 @@ class PesterBotScanner:
                         f"1️⃣ Tap your profile picture in Slack and select *Edit Profile*.\n"
                         f"2️⃣ **Choose one of the following methods:**\n"
                         f"    * 💻 *On Desktop (Recommended):* Populate the dedicated **`Emergency Contact - Primary`** and **`Emergency Contact - Backup`** fields.\n"
-                        f"    * 📱 *On Mobile:* Scroll to the **`What I do`** field and add: `ICE: [Name] ([Relationship]) - [Phone Number]`.\n"
+                        f"    * 📱 *On Mobile:* Scroll to the **`Title`** field and add: `ICE: [Name] ([Relationship]) - [Phone Number]`.\n"
                         f"3️⃣ Tap *Save Changes*."
                     )
                 }
@@ -112,7 +112,7 @@ class PesterBotScanner:
             f"1. Tap your profile picture in Slack and select 'Edit Profile'.\n"
             f"2. Choose one of the following methods:\n"
             f"   * On Desktop (Recommended): Populate the dedicated 'Emergency Contact - Primary' and 'Emergency Contact - Backup' fields.\n"
-            f"   * On Mobile: Scroll to the 'What I do' field and add: ICE: [Name] ([Relationship]) - [Phone Number].\n"
+            f"   * On Mobile: Scroll to the 'Title' field and add: ICE: [Name] ([Relationship]) - [Phone Number].\n"
             f"3. Tap 'Save Changes'.\n\n"
             f"Thank you for helping keep the PAX safe!\n\n"
             f"— F3 RVA Safety Bot"
@@ -128,7 +128,7 @@ class PesterBotScanner:
             f"<li><strong>Choose one of the following methods:</strong>"
             f"  <ul>"
             f"    <li>💻 <strong>On Desktop (Recommended):</strong> Populate the dedicated <strong>Emergency Contact - Primary</strong> and <strong>Emergency Contact - Backup</strong> fields.</li>"
-            f"    <li>📱 <strong>On Mobile:</strong> Scroll to the <strong>What I do</strong> field and add: <code>ICE: [Name] ([Relationship]) - [Phone Number]</code>.</li>"
+            f"    <li>📱 <strong>On Mobile:</strong> Scroll to the <strong>Title</strong> field and add: <code>ICE: [Name] ([Relationship]) - [Phone Number]</code>.</li>"
             f"  </ul>"
             f"</li>"
             f"<li>Tap <strong>Save Changes</strong>.</li>"
