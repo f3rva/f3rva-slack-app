@@ -99,7 +99,7 @@ class F3RVAStackSlackApp(cdk.Stack):
                 "APP_ENV": f"{{{{resolve:ssm:/{app_name}/{env_name}/app_env}}}}",
                 
                 # Dynamic SSM Resolvers - Securely loads values from SSM Parameter Store at deploy time
-                "SLACK_BOT_TOKEN": f"{{{{resolve:ssm:/{app_name}/{env_name}/slack_bot_token}}}}",
+                "SLACK_BOT_TOKEN": f"{{{{resolve:ssm-secure:/{app_name}/{env_name}/slack_bot_token}}}}",
                 "EMERGENCY_CONTACT_PRIMARY_FIELD_ID": f"{{{{resolve:ssm:/{app_name}/{env_name}/primary_emergency_contact_field_id}}}}",
                 "EMERGENCY_CONTACT_BACKUP_FIELD_ID": f"{{{{resolve:ssm:/{app_name}/{env_name}/backup_emergency_contact_field_id}}}}",
                 
