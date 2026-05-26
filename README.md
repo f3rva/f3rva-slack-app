@@ -130,7 +130,20 @@ export F3RVA_ACCOUNT_DEV="123456789012"
 export F3RVA_ACCOUNT_PROD="987654321098"
 ```
 
-### 3. CDK CLI Commands
+### 3. Provision AWS SSM Parameter Store Parameters
+Before deploying the stacks via CDK, you must provision the following parameters in your AWS target account's Systems Manager (SSM) Parameter Store (in `us-east-1`). This allows the Lambda function to securely resolve tokens and environment configurations at deploy time:
+
+| Parameter Name | Type | Recommended Value (Dev) | Description |
+| :--- | :--- | :--- | :--- |
+| `/f3rva/{env}/slack_bot_token` | `SecureString` | `xoxb-your-slack-bot-token` | The Slack Bot User OAuth Token with required scopes. |
+| `/f3rva/{env}/primary_emergency_contact_field_id` | `String` | `XF12345ABC` | Custom primary emergency contact field ID. |
+| `/f3rva/{env}/backup_emergency_contact_field_id` | `String` | `XF67890DEF` | Custom backup emergency contact field ID. |
+| `/f3rva/{env}/email_sender_source` | `String` | `admin@dev.f3rva.org` | The verified SES email sender identity. |
+| `/f3rva/{env}/app_env` | `String` | `development` | Configures the runtime environment (`development` or `production`). |
+
+*(Replace `{env}` in the path with `dev` or `prod` depending on the environment stack).*
+
+### 4. CDK CLI Commands
 Execute these commands from inside the `infrastructure/` folder:
 
 ```bash

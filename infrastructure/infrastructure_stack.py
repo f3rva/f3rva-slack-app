@@ -96,15 +96,14 @@ class F3RVAStackSlackApp(cdk.Stack):
             timeout=cdk.Duration.seconds(30), # Allows up to 30 seconds for full workspace directory scans
             memory_size=256,                  # Low memory footprint, fast cold starts
             environment={
-                "APP_ENV": "production" if env_name == "prod" else "development",
+                "APP_ENV": f"{{{{resolve:ssm:/{app_name}/{env_name}/app_env}}}}",
                 
                 # Dynamic SSM Resolvers - Securely loads values from SSM Parameter Store at deploy time
                 "SLACK_BOT_TOKEN": f"{{{{resolve:ssm:/{app_name}/{env_name}/slack_bot_token}}}}",
                 "EMERGENCY_CONTACT_PRIMARY_FIELD_ID": f"{{{{resolve:ssm:/{app_name}/{env_name}/primary_emergency_contact_field_id}}}}",
                 "EMERGENCY_CONTACT_BACKUP_FIELD_ID": f"{{{{resolve:ssm:/{app_name}/{env_name}/backup_emergency_contact_field_id}}}}",
                 
-                # Configures the verified email sender address based on the environment
-                "EMAIL_SENDER_SOURCE": "admin@dev.f3rva.org" if env_name == "dev" else "admin@f3rva.org"
+                "EMAIL_SENDER_SOURCE": f"{{{{resolve:ssm:/{app_name}/{env_name}/email_sender_source}}}}"
             }
         )
         cdk.Tags.of(slack_app_lambda).add("Name", f"{app_name}-{env_name}-slack-app")
