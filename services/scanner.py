@@ -187,6 +187,10 @@ class PesterBotScanner:
                         compliant_users.append(user_id)
                     else:
                         reminded_users.append(user_id)
+                        profile = member.get("profile", {})
+                        display_name = profile.get("display_name") or real_name
+                        logger.info(f"Nagging non-compliant user: Display Name = '{display_name}' (ID = '{user_id}')")
+                        
                         # 1. Send the Slack DM nudge
                         self.send_pester_reminder(user_id, real_name)
                         
