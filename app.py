@@ -1,11 +1,10 @@
-import os
 import sys
 import logging
-from slack_bolt import App
+from slack_sdk.web import WebClient
 from config.settings import settings
-from listeners import register_listeners
+from services.scanner import PesterBotScanner
 
-# Configure robust system-wide logging with level controls
+# Configure robust logging for both local runs and CloudWatch
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
@@ -13,48 +12,39 @@ logging.basicConfig(
         logging.StreamHandler(sys.stdout)
     ]
 )
-logger = logging.getLogger(__name__)
+logger = logging.getLogger("app")
 
-# Initialize the central Slack Bolt App using our validated Slack credentials.
-# process_before_response=True guarantees synchronous webhook execution parity,
-# which is essential for serverless FaaS like AWS Lambda.
-app = App(
-    token=settings.slack_bot_token,
-    signing_secret=settings.slack_signing_secret,
-    process_before_response=True
-)
+def run_pester_scan() -> None:
+    """Instantiates a Slack client and runs the workspace compliance check."""
+    logger.info("Initializing Slack WebClient...")
+    client = WebClient(token=settings.slack_bot_token)
+    
+    scanner = PesterBotScanner(client=client)
+    scanner.run_workspace_scan()
 
-# Attach all listener and monolithic routing definitions to our App
-register_listeners(app=app)
-
-# Expose the handler for AWS Lambda environment.
-# We load the AwsLambdaHandler dynamically to avoid local dependency issues if boto3 is not installed.
-handler = None
-if "AWS_LAMBDA_FUNCTION_NAME" in os.environ or os.getenv("APP_ENV") == "production":
+def handler(event, context) -> dict:
+    """The entry point for AWS Lambda, triggered on an EventBridge scheduled cron rule."""
+    logger.info("AWS Lambda EventBridge scheduled trigger received.")
     try:
-        from slack_bolt.adapter.aws_lambda import AwsLambdaHandler
-        handler = AwsLambdaHandler(app=app)
-        logger.info("AWS Lambda Handler initialized successfully.")
-    except ImportError as e:
-        logger.error(
-            f"Failed to initialize AWS Lambda handler. Please ensure 'boto3' is installed "
-            f"in the deployment environment: {e}"
-        )
+        run_pester_scan()
+        return {
+            "statusCode": 200,
+            "body": "Workspace scan completed successfully."
+        }
+    except Exception as error:
+        logger.critical(f"Lambda execution failed: {error}")
+        return {
+            "statusCode": 500,
+            "body": f"Workspace scan failed: {error}"
+        }
 
 if __name__ == "__main__":
-    logger.info(
-        f"Bootstrapping F3 RVA Slack Monolith App in '{settings.app_environment}' environment..."
-    )
-    
+    logger.info("Starting local F3 RVA Slack Pester Bot scan...")
     try:
-        # Start Bolt's built-in development HTTP server. We default to 3001
-        # to avoid port conflicts with the Vite website project running on 3000.
-        port = int(os.getenv("PORT", 3001))
-        logger.info(f"Starting Slack Bolt HTTP Webhook server on port {port}...")
-        app.start(port=port)
-        
+        run_pester_scan()
+        logger.info("Local scan finished successfully.")
     except KeyboardInterrupt:
-        logger.info("Shutdown signal received (Ctrl+C). Exiting gracefully.")
+        logger.info("Shutdown signal received (Ctrl+C). Exiting.")
     except Exception as error:
-        logger.critical(f"Fatal application startup failure: {error}")
+        logger.critical(f"Local scan run failed: {error}")
         sys.exit(1)

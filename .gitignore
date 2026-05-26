@@ -219,3 +219,8 @@ __marimo__/
 
 # Antigravity
 .antigravitycli/
+
+# AWS CDK
+cdk.out/
+.cdk.staging/
+
