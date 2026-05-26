@@ -6,6 +6,9 @@ on:
   release:
     types: [ published ]          # deploy to production when a release is published
 
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: 'true'
+
 jobs:
   test:
     name: Run Unit Tests
