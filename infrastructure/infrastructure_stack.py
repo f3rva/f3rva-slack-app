@@ -5,8 +5,7 @@ import aws_cdk as cdk
 from aws_cdk import (
     aws_lambda as _lambda,
     aws_iam as iam,
-    aws_events as events,
-    aws_events_targets as targets,
+    aws_scheduler as scheduler,
 )
 from constructs import Construct
 
@@ -118,14 +117,34 @@ class F3RVAStackSlackApp(cdk.Stack):
         )
         cdk.Tags.of(slack_app_lambda).add("Name", f"{app_name}-{env_name}-slack-app")
 
-        # 3. Create EventBridge Scheduled Rule (runs every Monday morning at 9:00 AM UTC / 5:00 AM EDT)
-        rule = events.Rule(
+        # 3. Create EventBridge Scheduler Schedule (runs at 12:00 PM Eastern Time on Wednesdays and Sundays)
+        scheduler_role = iam.Role(
             self,
-            "SlackAppScheduleRule",
-            schedule=events.Schedule.cron(minute="0", hour="9", week_day="MON"),
+            "SchedulerExecutionRole",
+            assumed_by=iam.ServicePrincipal("scheduler.amazonaws.com"),
+            description=f"Execution role for the EventBridge Scheduler trigger in {env_name}"
+        )
+        scheduler_role.add_to_policy(
+            iam.PolicyStatement(
+                actions=["lambda:InvokeFunction"],
+                resources=[slack_app_lambda.function_arn]
+            )
+        )
+        
+        scheduler.CfnSchedule(
+            self,
+            "SlackAppSchedule",
+            flexible_time_window=scheduler.CfnSchedule.FlexibleTimeWindowProperty(
+                mode="OFF"
+            ),
+            schedule_expression="cron(0 12 ? * WED,SUN *)",
+            schedule_expression_timezone="America/New_York",
+            target=scheduler.CfnSchedule.TargetProperty(
+                arn=slack_app_lambda.function_arn,
+                role_arn=scheduler_role.role_arn
+            ),
             description=f"Scheduled trigger for the {app_name} Slack Pester Bot in {env_name}"
         )
-        rule.add_target(targets.LambdaFunction(slack_app_lambda))
 
         # Tag all stack resources
         cdk.Tags.of(self).add("APPLICATION", app_name)
