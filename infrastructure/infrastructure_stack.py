@@ -74,6 +74,16 @@ class F3RVAStackSlackApp(cdk.Stack):
             )
         )
 
+        # Grant the role permission to read and decrypt its own Slack token from SSM Parameter Store
+        lambda_role.add_to_policy(
+            iam.PolicyStatement(
+                actions=["ssm:GetParameter"],
+                resources=[
+                    f"arn:aws:ssm:{self.region}:{self.account}:parameter/{app_name}/{env_name}/slack_bot_token"
+                ]
+            )
+        )
+
         # 2. Define the Python Lambda Function
         # We point cdk.Code.from_asset to ".." which contains app.py and requirements.txt
         slack_app_lambda = _lambda.Function(
@@ -98,8 +108,8 @@ class F3RVAStackSlackApp(cdk.Stack):
             environment={
                 "APP_ENV": f"{{{{resolve:ssm:/{app_name}/{env_name}/app_env}}}}",
                 
-                # Dynamic SSM Resolvers - Securely loads values from SSM Parameter Store at deploy time
-                "SLACK_BOT_TOKEN": f"{{{{resolve:ssm-secure:/{app_name}/{env_name}/slack_bot_token}}}}",
+                # We pass the parameter path directly; the Lambda decrypts it at runtime using boto3
+                "SLACK_BOT_TOKEN": f"/{app_name}/{env_name}/slack_bot_token",
                 "EMERGENCY_CONTACT_PRIMARY_FIELD_ID": f"{{{{resolve:ssm:/{app_name}/{env_name}/primary_emergency_contact_field_id}}}}",
                 "EMERGENCY_CONTACT_BACKUP_FIELD_ID": f"{{{{resolve:ssm:/{app_name}/{env_name}/backup_emergency_contact_field_id}}}}",
                 
