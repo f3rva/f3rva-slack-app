@@ -216,3 +216,11 @@ __marimo__/
 
 # Streamlit
 .streamlit/secrets.toml
+
+# Antigravity
+.antigravitycli/
+
+# AWS CDK
+cdk.out/
+.cdk.staging/
+
