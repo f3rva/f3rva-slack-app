@@ -1,4 +1,5 @@
 import os
+import boto3
 from typing import Optional
 from dotenv import load_dotenv
 
@@ -10,7 +11,14 @@ class AppSettings:
 
     def __init__(self) -> None:
         # Slack Credentials (Required)
-        self.slack_bot_token: str = self._get_required_env_variable("SLACK_BOT_TOKEN")
+        token: str = self._get_required_env_variable("SLACK_BOT_TOKEN")
+        if token.startswith("/"):
+            # It's an AWS SSM parameter path, fetch it securely at runtime!
+            ssm = boto3.client("ssm", region_name="us-east-1")
+            response = ssm.get_parameter(Name=token, WithDecryption=True)
+            self.slack_bot_token: str = response["Parameter"]["Value"].strip()
+        else:
+            self.slack_bot_token: str = token
         
         # Optional Custom Profile Field IDs (for paid workspaces supporting custom fields)
         # If undefined, the bot will scan standard "What I do" (Title) profiles instead.
