@@ -12,6 +12,8 @@ logging.basicConfig(
         logging.StreamHandler(sys.stdout)
     ]
 )
+# Force pre-configured AWS Lambda root logger to INFO level
+logging.getLogger().setLevel(logging.INFO)
 logger = logging.getLogger("app")
 
 def run_pester_scan() -> None:
