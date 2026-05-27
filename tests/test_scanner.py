@@ -255,3 +255,68 @@ def test_run_workspace_scan_reminds_only_non_compliant_users(mock_settings, mock
     mock_ses.send_email.assert_called_once()
     called_kwargs = mock_ses.send_email.call_args[1]
     assert called_kwargs["Destination"] == {"ToAddresses": ["noncompliant@domain.com"]}
+
+@patch("services.scanner.settings")
+def test_run_workspace_scan_paginates_correctly(mock_settings) -> None:
+    """Verifies that run_workspace_scan correctly requests paginated chunks of users using cursors."""
+    client = MagicMock()
+    scanner = PesterBotScanner(client=client)
+
+    # Return two separate pages of members using side_effect
+    page_1 = {
+        "members": [
+            {
+                "id": "U001",
+                "name": "compliant.pax",
+                "is_bot": False,
+                "deleted": False,
+                "profile": {
+                    "title": "ICE: Wife (555-0001)"
+                }
+            }
+        ],
+        "response_metadata": {
+            "next_cursor": "cursor_token_page_2"
+        }
+    }
+
+    page_2 = {
+        "members": [
+            {
+                "id": "U002",
+                "name": "compliant.pax2",
+                "is_bot": False,
+                "deleted": False,
+                "profile": {
+                    "title": "ICE: Wife (555-0002)"
+                }
+            }
+        ],
+        "response_metadata": {
+            "next_cursor": ""
+        }
+    }
+
+    client.users_list.side_effect = [page_1, page_2]
+
+    # Execute the scan
+    summary = scanner.run_workspace_scan()
+
+    # Verify both users are captured and marked compliant
+    assert "U001" in summary["compliant"]
+    assert "U002" in summary["compliant"]
+    assert len(summary["reminded"]) == 0
+
+    # Assert users_list was called exactly twice with pagination parameters
+    assert client.users_list.call_count == 2
+    
+    # Check page 1 arguments
+    args_page_1 = client.users_list.call_args_list[0][1]
+    assert args_page_1["cursor"] is None
+    assert args_page_1["limit"] == 200
+
+    # Check page 2 arguments
+    args_page_2 = client.users_list.call_args_list[1][1]
+    assert args_page_2["cursor"] == "cursor_token_page_2"
+    assert args_page_2["limit"] == 200
+
