@@ -102,8 +102,8 @@ class F3RVAStackSlackApp(cdk.Stack):
                 )
             ),
             role=lambda_role,
-            timeout=cdk.Duration.seconds(30), # Allows up to 30 seconds for full workspace directory scans
-            memory_size=256,                  # Low memory footprint, fast cold starts
+            timeout=cdk.Duration.seconds(900), # Allows up to 15 minute for full workspace directory scans
+            memory_size=256,                   # Low memory footprint, fast cold starts
             environment={
                 "APP_ENV": f"{{{{resolve:ssm:/{app_name}/{env_name}/app_env}}}}",
                 
@@ -141,7 +141,10 @@ class F3RVAStackSlackApp(cdk.Stack):
             schedule_expression_timezone="America/New_York",
             target=scheduler.CfnSchedule.TargetProperty(
                 arn=slack_app_lambda.function_arn,
-                role_arn=scheduler_role.role_arn
+                role_arn=scheduler_role.role_arn,
+                retry_policy=scheduler.CfnSchedule.RetryPolicyProperty(
+                    maximum_retry_attempts=0
+                )
             ),
             description=f"Scheduled trigger for the {app_name} Slack Pester Bot in {env_name}"
         )

@@ -39,10 +39,9 @@ def test_check_user_compliance_with_custom_fields(mock_settings) -> None:
     
     mock_settings.primary_emergency_contact_profile_field_id = "X12345"
     
-    mock_user = {
-        "id": "U12345",
+    # Mock users_profile_get to return the profile with custom fields
+    client.users_profile_get.return_value = {
         "profile": {
-            "title": "Developer",
             "fields": {
                 "X12345": {
                     "value": "Jane (Wife) - 555-0999"
@@ -51,7 +50,16 @@ def test_check_user_compliance_with_custom_fields(mock_settings) -> None:
         }
     }
     
+    # Payload from users.list (does not have fields key)
+    mock_user = {
+        "id": "U12345",
+        "profile": {
+            "title": "Developer"
+        }
+    }
+    
     assert scanner.check_user_compliance(mock_user) is True
+    client.users_profile_get.assert_called_once_with(user="U12345")
 
 @patch("services.scanner.settings")
 def test_check_user_non_compliance(mock_settings) -> None:
@@ -61,10 +69,9 @@ def test_check_user_non_compliance(mock_settings) -> None:
     
     mock_settings.primary_emergency_contact_profile_field_id = "X12345"
     
-    mock_user = {
-        "id": "U12345",
+    # Mock users_profile_get to return empty custom fields
+    client.users_profile_get.return_value = {
         "profile": {
-            "title": "F3 Leader",
             "fields": {
                 "X12345": {
                     "value": ""
@@ -73,7 +80,16 @@ def test_check_user_non_compliance(mock_settings) -> None:
         }
     }
     
+    # Payload from users.list (does not have fields key)
+    mock_user = {
+        "id": "U12345",
+        "profile": {
+            "title": "F3 Leader"
+        }
+    }
+    
     assert scanner.check_user_compliance(mock_user) is False
+    client.users_profile_get.assert_called_once_with(user="U12345")
 
 def test_send_pester_reminder_dispatches_slack_message() -> None:
     """Verifies that send_pester_reminder posts the correct Block Kit DM reminder to Slack."""
@@ -89,6 +105,38 @@ def test_send_pester_reminder_dispatches_slack_message() -> None:
     assert "blocks" in called_kwargs
     assert len(called_kwargs["blocks"]) == 3
     assert "Safety Reminder" in called_kwargs["text"]
+
+@patch("services.scanner.settings")
+def test_check_user_compliance_with_dynamic_profile_fetch(mock_settings) -> None:
+    """Verifies that check_user_compliance calls users_profile_get at runtime if fields are missing."""
+    client = MagicMock()
+    scanner = PesterBotScanner(client=client)
+    
+    mock_settings.primary_emergency_contact_profile_field_id = "X12345"
+    
+    # Set up client mock for users_profile_get
+    client.users_profile_get.return_value = {
+        "profile": {
+            "fields": {
+                "X12345": {
+                    "value": "Jane (Wife) - 555-0999"
+                }
+            }
+        }
+    }
+    
+    # User lacks fields dictionary in profile (representing output of users.list)
+    mock_user = {
+        "id": "U12345",
+        "profile": {
+            "title": "Developer"
+        }
+    }
+    
+    # Execution should call users_profile_get and return True
+    assert scanner.check_user_compliance(mock_user) is True
+    client.users_profile_get.assert_called_once_with(user="U12345")
+
 
 @patch("services.scanner.boto3")
 def test_send_email_reminder_dispatches_ses_email(mock_boto) -> None:
@@ -196,6 +244,12 @@ def test_run_workspace_scan_reminds_only_non_compliant_users(mock_settings, mock
     assert "U002" in called_channels
     assert "U005" in called_channels
     
+    # Verify profile get calls occurred exactly twice for the non-compliant titles
+    assert client.users_profile_get.call_count == 2
+    called_profile_users = [call[1]["user"] for call in client.users_profile_get.call_args_list]
+    assert "U002" in called_profile_users
+    assert "U005" in called_profile_users
+
     # Verify exactly one SES email was triggered (only to noncompliant@domain.com, skipped for U005)
     mock_boto.client.assert_called_once_with("ses", region_name="us-east-1")
     mock_ses.send_email.assert_called_once()
