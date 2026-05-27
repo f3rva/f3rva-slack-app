@@ -1,4 +1,5 @@
 import logging
+import time
 import boto3
 from typing import Dict, Any, Optional, List
 from slack_sdk.web import WebClient
@@ -30,19 +31,35 @@ class PesterBotScanner:
             return True
 
         # 2. Check custom emergency contact fields if configured
-        fields: Any = profile.get("fields")
-        if isinstance(fields, dict):
-            # Safe helper to check a custom field by ID
-            def _has_field_value(field_id: Optional[str]) -> bool:
-                if not field_id:
-                    return False
-                field_data = fields.get(field_id)
-                if isinstance(field_data, dict):
-                    return bool(field_data.get("value", "").strip())
+        # Since users.list does not include custom fields, we must fetch the full profile at runtime
+        if settings.primary_emergency_contact_profile_field_id:
+            user_id = user.get("id")
+            if not user_id:
                 return False
 
-            if _has_field_value(settings.primary_emergency_contact_profile_field_id):
-                return True
+            try:
+                logger.info(f"Fetching full profile for user {user_id} to check custom emergency fields...")
+                # Respect Slack Tier 4 API rate limits (~100 requests/minute)
+                time.sleep(0.6)
+                
+                response = self.client.users_profile_get(user=user_id)
+                full_profile = response.get("profile", {})
+                fields = full_profile.get("fields")
+                
+                if isinstance(fields, dict):
+                    # Safe helper to check a custom field by ID
+                    def _has_field_value(field_id: Optional[str]) -> bool:
+                        if not field_id:
+                            return False
+                        field_data = fields.get(field_id)
+                        if isinstance(field_data, dict):
+                            return bool(field_data.get("value", "").strip())
+                        return False
+
+                    if _has_field_value(settings.primary_emergency_contact_profile_field_id):
+                        return True
+            except Exception as e:
+                logger.error(f"Failed to fetch full profile for user {user_id}: {e}")
 
         return False
 
