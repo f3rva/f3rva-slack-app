@@ -141,7 +141,10 @@ class F3RVAStackSlackApp(cdk.Stack):
             schedule_expression_timezone="America/New_York",
             target=scheduler.CfnSchedule.TargetProperty(
                 arn=slack_app_lambda.function_arn,
-                role_arn=scheduler_role.role_arn
+                role_arn=scheduler_role.role_arn,
+                retry_policy=scheduler.CfnSchedule.RetryPolicyProperty(
+                    maximum_retry_attempts=0
+                )
             ),
             description=f"Scheduled trigger for the {app_name} Slack Pester Bot in {env_name}"
         )
