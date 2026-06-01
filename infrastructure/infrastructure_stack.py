@@ -73,12 +73,13 @@ class F3RVAStackSlackApp(cdk.Stack):
             )
         )
 
-        # Grant the role permission to read and decrypt its own Slack token from SSM Parameter Store
+        # Grant the role permission to read and decrypt its Slack tokens from SSM Parameter Store
         lambda_role.add_to_policy(
             iam.PolicyStatement(
                 actions=["ssm:GetParameter"],
                 resources=[
-                    f"arn:aws:ssm:{self.region}:{self.account}:parameter/{app_name}/{env_name}/slack_bot_token"
+                    f"arn:aws:ssm:{self.region}:{self.account}:parameter/{app_name}/{env_name}/slack_bot_token",
+                    f"arn:aws:ssm:{self.region}:{self.account}:parameter/{app_name}/{env_name}/slack_user_token"
                 ]
             )
         )
@@ -109,6 +110,7 @@ class F3RVAStackSlackApp(cdk.Stack):
                 
                 # We pass the parameter path directly; the Lambda decrypts it at runtime using boto3
                 "SLACK_BOT_TOKEN": f"/{app_name}/{env_name}/slack_bot_token",
+                "SLACK_USER_TOKEN": f"/{app_name}/{env_name}/slack_user_token",
                 "EMERGENCY_CONTACT_PRIMARY_FIELD_ID": f"{{{{resolve:ssm:/{app_name}/{env_name}/primary_emergency_contact_field_id}}}}",
                 "EMERGENCY_CONTACT_BACKUP_FIELD_ID": f"{{{{resolve:ssm:/{app_name}/{env_name}/backup_emergency_contact_field_id}}}}",
                 
