@@ -172,6 +172,47 @@ class PesterBotScanner:
         except Exception as e:
             logger.error(f"Failed to send email reminder via SES to {email}: {e}")
 
+    def _get_billing_status(self, user_token: str) -> Dict[str, bool]:
+        """Retrieves active billing statuses for workspace members using an Admin User Token.
+
+        Returns:
+            A dictionary mapping user IDs to their `billing_active` boolean status (True if active, False if inactive).
+        """
+        billing_statuses: Dict[str, bool] = {}
+        cursor: Optional[str] = None
+        
+        try:
+            logger.info("Fetching workspace billing statuses using Admin User Token...")
+            while True:
+                # Use limit=1000 to maximize page size and minimize API round trips
+                response = self.client.team_billableInfo(
+                    token=user_token,
+                    cursor=cursor,
+                    limit=1000
+                )
+                billable_info = response.get("billable_info")
+                if isinstance(billable_info, dict):
+                    for user_id, info in billable_info.items():
+                        if isinstance(info, dict):
+                            billing_statuses[user_id] = info.get("billing_active", False)
+                
+                response_metadata = response.get("response_metadata")
+                if not isinstance(response_metadata, dict):
+                    break
+                cursor = response_metadata.get("next_cursor")
+                if not isinstance(cursor, str) or not cursor:
+                    break
+            
+            logger.info(f"Successfully retrieved billing status for {len(billing_statuses)} users.")
+        except Exception as e:
+            logger.warning(
+                f"Failed to fetch workspace billing status (could be due to invalid/expired user token): {e}. "
+                f"Proceeding without filtering billing status."
+            )
+            return {}
+
+        return billing_statuses
+
     def run_workspace_scan(self) -> Dict[str, List[str]]:
         """Scans the entire workspace and sends reminders to non-compliant members.
 
@@ -181,6 +222,10 @@ class PesterBotScanner:
         
         compliant_users: List[str] = []
         reminded_users: List[str] = []
+        
+        billing_statuses: Dict[str, bool] = {}
+        if settings.slack_user_token:
+            billing_statuses = self._get_billing_status(settings.slack_user_token)
         
         cursor: Optional[str] = None
         
@@ -197,6 +242,11 @@ class PesterBotScanner:
                     
                     # Skip bots, deleted accounts, and slackbot
                     if member.get("is_bot") or member.get("deleted") or user_id == "USLACKBOT":
+                        continue
+                        
+                    # Skip billing-inactive users if billing status is explicitly fetched and False
+                    if user_id in billing_statuses and not billing_statuses[user_id]:
+                        logger.info(f"Skipping billing-inactive user: {real_name} ({user_id})")
                         continue
                         
                     is_compliant = self.check_user_compliance(member)

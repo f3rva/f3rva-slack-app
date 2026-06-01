@@ -76,6 +76,9 @@ Create a local `.env` file in the root directory:
 # Slack Bot User OAuth Token (Starts with 'xoxb-', found in api.slack.com)
 SLACK_BOT_TOKEN=xoxb-your-bot-token
 
+# (Optional) Administrative Slack User Token (Starts with 'xoxp-', required for billing active filters)
+SLACK_USER_TOKEN=xoxp-your-user-token
+
 # (Optional) Custom emergency contact profile field IDs if your workspace supports them:
 EMERGENCY_CONTACT_PRIMARY_FIELD_ID=XF12345ABC
 EMERGENCY_CONTACT_BACKUP_FIELD_ID=XF67890DEF
@@ -106,8 +109,9 @@ To configure the bot on the [Slack API Portal](https://api.slack.com/apps):
     *   `users.profile:read`: Allows the bot to inspect the standard "What I do" (Title) and custom profile fields.
     *   `chat:write`: Allows the bot to send direct DM reminders to members.
     *   `users:read.email`: Allows the bot to retrieve each member's email address to send SES email alerts.
-3.  Scroll back to the top and click **Install (or Reinstall) to Workspace** to generate your `SLACK_BOT_TOKEN`.
-4.  *Note: Event Subscriptions, Interactivity & Shortcuts, and Slash Commands are completely unused and should be turned OFF.*
+3.  *(Optional but highly recommended)* Under **User Token Scopes**, add the **`admin`** scope. This grants permissions to query `team.billableInfo` for active billing filtering.
+4.  Scroll back to the top and click **Install (or Reinstall) to Workspace** to generate your `SLACK_BOT_TOKEN` (`xoxb-`) and your `SLACK_USER_TOKEN` (`xoxp-`).
+5.  *Note: Event Subscriptions, Interactivity & Shortcuts, and Slash Commands are completely unused and should be turned OFF.*
 
 ---
 
@@ -136,6 +140,7 @@ Before deploying the stacks via CDK, you must provision the following parameters
 | Parameter Name | Type | Recommended Value (Dev) | Description |
 | :--- | :--- | :--- | :--- |
 | `/f3rva/{env}/slack_bot_token` | `SecureString` | `xoxb-your-slack-bot-token` | The Slack Bot User OAuth Token with required scopes. |
+| `/f3rva/{env}/slack_user_token` | `SecureString` | `xoxp-your-slack-user-token` | Administrative Slack User Token (required for billing status check). |
 | `/f3rva/{env}/primary_emergency_contact_field_id` | `String` | `XF12345ABC` | Custom primary emergency contact field ID. |
 | `/f3rva/{env}/backup_emergency_contact_field_id` | `String` | `XF67890DEF` | Custom backup emergency contact field ID. |
 | `/f3rva/{env}/email_sender_source` | `String` | `admin@dev.f3rva.org` | The verified SES email sender identity. |

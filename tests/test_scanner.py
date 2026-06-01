@@ -320,3 +320,165 @@ def test_run_workspace_scan_paginates_correctly(mock_settings) -> None:
     assert args_page_2["cursor"] == "cursor_token_page_2"
     assert args_page_2["limit"] == 200
 
+def test_get_billing_status_paginates_correctly() -> None:
+    """Verifies that _get_billing_status correctly paginates through team_billableInfo using cursors."""
+    client = MagicMock()
+    scanner = PesterBotScanner(client=client)
+    
+    page_1 = {
+        "billable_info": {
+            "U001": {"billing_active": True},
+            "U002": {"billing_active": False}
+        },
+        "response_metadata": {
+            "next_cursor": "billing_cursor_token_page_2"
+        }
+    }
+    page_2 = {
+        "billable_info": {
+            "U003": {"billing_active": True}
+        },
+        "response_metadata": {
+            "next_cursor": ""
+        }
+    }
+    
+    client.team_billableInfo.side_effect = [page_1, page_2]
+    
+    billing_statuses = scanner._get_billing_status("xoxp-mock-user-token")
+    
+    # Assertions on returned dictionary
+    assert billing_statuses == {
+        "U001": True,
+        "U002": False,
+        "U003": True
+    }
+    
+    # Verify calls and limit parameter
+    assert client.team_billableInfo.call_count == 2
+    
+    call_1 = client.team_billableInfo.call_args_list[0][1]
+    assert call_1["token"] == "xoxp-mock-user-token"
+    assert call_1["cursor"] is None
+    assert call_1["limit"] == 1000
+    
+    call_2 = client.team_billableInfo.call_args_list[1][1]
+    assert call_2["token"] == "xoxp-mock-user-token"
+    assert call_2["cursor"] == "billing_cursor_token_page_2"
+    assert call_2["limit"] == 1000
+
+@patch("services.scanner.boto3")
+@patch("services.scanner.settings")
+def test_run_workspace_scan_skips_billing_inactive_users(mock_settings, mock_boto) -> None:
+    """Verifies that billing-inactive users (billing_active: false) are skipped during scanning."""
+    client = MagicMock()
+    scanner = PesterBotScanner(client=client)
+    
+    # Enable the mock token so _get_billing_status is invoked
+    mock_settings.slack_user_token = "xoxp-mock-user-token-value"
+    mock_settings.primary_emergency_contact_profile_field_id = "X12345"
+    mock_settings.email_sender_source = "admin@f3rva.org"
+    
+    # Mock billableInfo responses
+    client.team_billableInfo.return_value = {
+        "billable_info": {
+            "U001": {"billing_active": True},
+            "U002": {"billing_active": False},
+            "U003": {"billing_active": True}
+        },
+        "response_metadata": {"next_cursor": ""}
+    }
+    
+    # Mock users_list response
+    client.users_list.return_value = {
+        "members": [
+            {
+                "id": "U001",
+                "name": "compliant.pax",
+                "real_name": "Compliant Pax",
+                "is_bot": False,
+                "deleted": False,
+                "profile": {
+                    "title": "ICE: Wife (555-0001)",
+                    "email": "compliant@domain.com"
+                }
+            },
+            {
+                "id": "U002",
+                "name": "inactive.pax",
+                "real_name": "Inactive Pax",
+                "is_bot": False,
+                "deleted": False,
+                "profile": {
+                    "title": "Regular Title",
+                    "email": "inactive@domain.com"
+                }
+            },
+            {
+                "id": "U003",
+                "name": "noncompliant.pax",
+                "real_name": "Noncompliant Pax",
+                "is_bot": False,
+                "deleted": False,
+                "profile": {
+                    "title": "Regular Title",
+                    "email": "noncompliant@domain.com"
+                }
+            }
+        ],
+        "response_metadata": {"next_cursor": ""}
+    }
+    
+    # Execute the scan
+    summary = scanner.run_workspace_scan()
+    
+    # U001 is compliant, U003 is reminded, U002 is skipped (neither compliant nor reminded)
+    assert "U001" in summary["compliant"]
+    assert "U003" in summary["reminded"]
+    assert "U002" not in summary["compliant"]
+    assert "U002" not in summary["reminded"]
+    
+    # Verify Slack DMs: only U003 got pestered (count is 1)
+    assert client.chat_postMessage.call_count == 1
+    assert client.chat_postMessage.call_args[1]["channel"] == "U003"
+
+@patch("services.scanner.boto3")
+@patch("services.scanner.settings")
+def test_run_workspace_scan_graceful_fallback_on_billing_api_error(mock_settings, mock_boto) -> None:
+    """Verifies scanner degrades gracefully if the billing status endpoint fails."""
+    client = MagicMock()
+    scanner = PesterBotScanner(client=client)
+    
+    mock_settings.slack_user_token = "xoxp-mock-user-token-value"
+    mock_settings.primary_emergency_contact_profile_field_id = "X12345"
+    mock_settings.email_sender_source = "admin@f3rva.org"
+    
+    # Simulate team_billableInfo throwing an Exception
+    client.team_billableInfo.side_effect = Exception("Slack API rate_limited")
+    
+    # Mock users_list response
+    client.users_list.return_value = {
+        "members": [
+            {
+                "id": "U001",
+                "name": "noncompliant.pax",
+                "real_name": "Noncompliant Pax",
+                "is_bot": False,
+                "deleted": False,
+                "profile": {
+                    "title": "Regular Title",
+                    "email": "noncompliant@domain.com"
+                }
+            }
+        ],
+        "response_metadata": {"next_cursor": ""}
+    }
+    
+    # Execute the scan (should NOT raise an exception)
+    summary = scanner.run_workspace_scan()
+    
+    # Since billing fetch failed, it returned empty statuses, pestering continues normally
+    assert "U001" in summary["reminded"]
+    assert client.chat_postMessage.call_count == 1
+
+

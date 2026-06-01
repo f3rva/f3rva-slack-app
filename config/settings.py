@@ -29,6 +29,15 @@ class AppSettings:
         # Defaults to 'admin@f3rva.org' if not specified
         self.email_sender_source: str = os.getenv("EMAIL_SENDER_SOURCE", "admin@f3rva.org").strip()
         
+        # Slack User Token (Optional, required for billable status checks)
+        user_token: Optional[str] = os.getenv("SLACK_USER_TOKEN")
+        if user_token and user_token.strip().startswith("/"):
+            ssm = boto3.client("ssm", region_name="us-east-1")
+            response = ssm.get_parameter(Name=user_token.strip(), WithDecryption=True)
+            self.slack_user_token: Optional[str] = response["Parameter"]["Value"].strip()
+        else:
+            self.slack_user_token: Optional[str] = user_token.strip() if user_token else None
+        
         self.app_environment: str = os.getenv("APP_ENV", "development")
 
     def _get_required_env_variable(self, variable_name: str) -> str:
