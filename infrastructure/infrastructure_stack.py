@@ -139,7 +139,7 @@ class F3RVAStackSlackApp(cdk.Stack):
             flexible_time_window=scheduler.CfnSchedule.FlexibleTimeWindowProperty(
                 mode="OFF"
             ),
-            schedule_expression="cron(0 12 ? * WED,SUN *)",
+            schedule_expression="cron(0 12 ? * SUN *)",
             schedule_expression_timezone="America/New_York",
             target=scheduler.CfnSchedule.TargetProperty(
                 arn=slack_app_lambda.function_arn,
