@@ -141,6 +141,7 @@ class F3RVAStackSlackApp(cdk.Stack):
             ),
             schedule_expression="cron(0 12 ? * SUN *)",
             schedule_expression_timezone="America/New_York",
+            state="ENABLED" if env_name == "prod" else "DISABLED",
             target=scheduler.CfnSchedule.TargetProperty(
                 arn=slack_app_lambda.function_arn,
                 role_arn=scheduler_role.role_arn,
