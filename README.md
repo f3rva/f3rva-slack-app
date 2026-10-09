@@ -101,17 +101,36 @@ python app.py
 
 ## Slack App Configuration Guide (api.slack.com)
 
-To configure the bot on the [Slack API Portal](https://api.slack.com/apps):
+This Slack App serves two key regional roles:
+1. **Compliance Scanner (Pester Bot):** Scans active members, audits profile ICE descriptions, and sends reminder DMs.
+2. **Website Authentication & Backblast Publishing (`f3rva-api` & `f3rva-website`):** Enables 1-click **Sign in with Slack** (OpenID Connect) for members to log into `f3rva.org`, and automatically posts formatted backblast summary cards to the regional `#backblasts` channel.
 
-1.  Navigate to **Features** > **OAuth & Permissions**.
-2.  Scroll down to **Scopes** > **Bot Token Scopes** and add the following four permissions:
-    *   `users:read`: Allows the bot to fetch the active workspace member directory.
-    *   `users.profile:read`: Allows the bot to inspect the standard "What I do" (Title) and custom profile fields.
-    *   `chat:write`: Allows the bot to send direct DM reminders to members.
-    *   `users:read.email`: Allows the bot to retrieve each member's email address to send SES email alerts.
-3.  *(Optional but highly recommended)* Under **User Token Scopes**, add the **`admin`** scope. This grants permissions to query `team.billableInfo` for active billing filtering.
-4.  Scroll back to the top and click **Install (or Reinstall) to Workspace** to generate your `SLACK_BOT_TOKEN` (`xoxb-`) and your `SLACK_USER_TOKEN` (`xoxp-`).
-5.  *Note: Event Subscriptions, Interactivity & Shortcuts, and Slash Commands are completely unused and should be turned OFF.*
+To configure the app on the [Slack API Portal](https://api.slack.com/apps):
+
+### 1. OAuth & Permissions: Redirect URLs
+Navigate to **Features** > **OAuth & Permissions** > **Redirect URLs** and add the website OAuth callback endpoints:
+* `https://f3rva.org/auth/slack/callback` (Production)
+* `https://dev.f3rva.org/auth/slack/callback` (Development)
+* `http://localhost:5173/auth/slack/callback` (Local frontend dev)
+
+Click **Save URLs**.
+
+### 2. Scopes
+* **Bot Token Scopes**:
+  * `users:read`: Allows fetching the active workspace member directory.
+  * `users.profile:read`: Allows inspecting standard "What I do" (Title) and custom profile fields.
+  * `chat:write`: Allows sending reminder DMs to members and dispatching backblast cards to `#backblasts`.
+  * `users:read.email`: Allows retrieving each member's email address for SES email alerts.
+* **User Token Scopes**:
+  * `admin` *(Optional but recommended)*: Grants permissions to query `team.billableInfo` for active billing filtering.
+  * *Note: Do NOT add `openid`, `profile`, or `email` here as static workspace scopes. OpenID Connect scopes are requested dynamically during user sign-in via the authorize URL.*
+
+### 3. Channel Membership
+* In the Slack workspace, invite the bot to the backblasts channel: `/invite @<bot_name>` in `#backblasts`.
+
+### 4. Install / Reinstall to Workspace
+* Click **Install (or Reinstall) to Workspace** to generate your `SLACK_BOT_TOKEN` (`xoxb-`) and `SLACK_USER_TOKEN` (`xoxp-`).
+* Obtain your **Client ID** and **Client Secret** under **Settings** > **Basic Information** > **App Credentials**.
 
 ---
 
@@ -135,8 +154,9 @@ export F3RVA_ACCOUNT_PROD="987654321098"
 ```
 
 ### 3. Provision AWS SSM Parameter Store Parameters
-Before deploying the stacks via CDK, you must provision the following parameters in your AWS target account's Systems Manager (SSM) Parameter Store (in `us-east-1`). This allows the Lambda function to securely resolve tokens and environment configurations at deploy time:
+Before deploying the stacks via CDK or integrating with `f3rva-api`, provision the following parameters in your target AWS account's Systems Manager (SSM) Parameter Store (in `us-east-1`):
 
+#### Pester Bot Parameters
 | Parameter Name | Type | Recommended Value (Dev) | Description |
 | :--- | :--- | :--- | :--- |
 | `/f3rva/{env}/slack_bot_token` | `SecureString` | `xoxb-your-slack-bot-token` | The Slack Bot User OAuth Token with required scopes. |
@@ -146,7 +166,16 @@ Before deploying the stacks via CDK, you must provision the following parameters
 | `/f3rva/{env}/email_sender_source` | `String` | `admin@dev.f3rva.org` | The verified SES email sender identity. |
 | `/f3rva/{env}/app_env` | `String` | `development` | Configures the runtime environment (`development` or `production`). |
 
-*(Replace `{env}` in the path with `dev` or `prod` depending on the environment stack).*
+#### Website Authentication & Backblast Integration Parameters (`f3rva-api`)
+| Parameter Name | Type | Recommended Value (Dev) | Description |
+| :--- | :--- | :--- | :--- |
+| `/f3rva/{env}/slack_client_id` | `String` | `11191764578630.11224289195056` | Slack App Client ID from Basic Information. |
+| `/f3rva/{env}/slack_client_secret` | `SecureString` | `your-slack-client-secret` | Slack App Client Secret from Basic Information. |
+| `/f3rva/{env}/slack_allowed_team_id` | `String` | `T0B5MNGH0JJ` | Allowed Slack Team/Workspace ID to restrict authentication. |
+| `/f3rva/{env}/slack_backblast_channel_id` | `String` | `C0B5NK4E44V` | Target Slack Channel ID for automated backblast summary cards. |
+| `/f3rva/{env}/backblast_url_prefix` | `String` | `https://dev.f3rva.org` | Base URL prefix for backblast permalinks (`https://f3rva.org` in prod). |
+
+*(Replace `{env}` in the path with `dev` or `prod` depending on the environment stack. Underscores are the native naming convention).*
 
 ### 4. CDK CLI Commands
 Execute these commands from inside the `infrastructure/` folder:
